@@ -1,4 +1,4 @@
-module SpreeAlImport
+module Spree
   class Engine < Rails::Engine
     engine_name 'spree_al_import'
     isolate_namespace Spree
@@ -11,6 +11,7 @@ module SpreeAlImport
     end
 
     def self.activate
+      #require 'spree_al_import/import_job'
       Dir.glob(File.join(File.dirname(__FILE__), '../../app/**/*_decorator*.rb')) do |c|
         Rails.configuration.cache_classes ? require(c) : load(c)
       end

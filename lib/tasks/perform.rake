@@ -1,10 +1,10 @@
 #require 'spree_al_import'
 
-namespace :spree_al_import do
+namespace :spree do
   desc "Run import from my  files"
-  task :perform do
+  task :import_product do
     #Rake::Task['import_products:install:migrations'].invoke
-    SpreeAlImport::ImportJob.perform
+    Spree::ImportJob.import_data!
   end
 
 =begin
