@@ -1,0 +1,24 @@
+namespace :spree_al_import do
+  desc "Run import from my  files"
+  task :perform do
+    #Rake::Task['import_products:install:migrations'].invoke
+    SpreeAlImport::ImportJob.perform
+  end
+
+=begin
+  namespace :install do
+    desc "Copies all migrations (NOTE: This will be obsolete with Rails 3.1)"
+    task :migrations do
+      source = File.join(File.dirname(__FILE__), '..', '..', 'db')
+      destination = File.join(Rails.root, 'db')
+      puts "INFO: Mirroring assets from #{source} to #{destination}"
+      Spree::Core::FileUtilz.mirror_files(source, destination)
+
+      puts "NOTE: This extensions uses delayed job - you need to generate additional migrations for" +
+      " this gem by executing `rails generate delayed_job:active_record'"
+    end
+  end
+=end
+
+end
+
