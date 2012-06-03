@@ -1,3 +1,5 @@
+#require 'spree_al_import'
+
 namespace :spree_al_import do
   desc "Run import from my  files"
   task :perform do

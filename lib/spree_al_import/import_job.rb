@@ -3,12 +3,12 @@ module SpreeAlImport
     #attr_accessor :product_import_id
     #attr_accessor :user_id
 
-    def initialize()
+#    def initialize()
       #self.product_import_id = product_import_record.id
       #self.user_id = user.id
-    end
+#    end
 
-    def perform
+    def self.perform
       begin
         #product_import = Spree::ProductImport.find(self.product_import_id)
         #results = product_import.import_data!(IMPORT_PRODUCT_SETTINGS[:transaction])
