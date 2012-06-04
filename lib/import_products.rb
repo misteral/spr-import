@@ -1,8 +1,11 @@
+# encoding: UTF-8
+
 require 'csv'
 require 'active_support'
 require 'action_controller'
 include ActionDispatch::TestProcess
 require 'yaml'
+require 'russian'
 
 # class AuditLogger < Logger
   # def format_message(severity, timestamp, progname, msg)
@@ -19,7 +22,16 @@ class ImportProducts
 #      #Images are below SPREE/vendor/import/productsXXXX/
 #      # if there are more than one, take lexically last
 #
-#      #@dir = Dir.glob(File.join(Rails.root, "vendor", "import","products*" )).last
+    @dir = IMPORT_PRODUCT_SETTINGS[:file_path]
+    puts ""
+    @product_ids = []
+    @products_before_import = Spree::Product.all
+    @names_of_products_before_import = []
+    @products_before_import.each do |product|
+      @names_of_products_before_import << product.name
+    end
+
+
 #      #puts "Loading from #{@dir}"
 #
 #      # logfile = File.open(File.join(Rails.root.to_s, "log","product-import-#{Time.now.to_s(:db)}.log"), 'a')
@@ -499,8 +511,20 @@ class ImportProducts
     end
     return index 
   end
-  
+
+  def create_permalink_url (product_name, product_sku)
+    product_name = Russian.translit(product_name).downcase+"-"+product_sku
+    #del_arr  = [",",'"',"~","!","@","%","^","(",")","<",">",":",";","{","}","[","]","&","`","„","‹","’","‘","“","”","•","›","«","´","»","°"]
+    #del_arr.each {|n| product_name.delete! n }
+    product_name.gsub!(/\W/,'')
+    product_name.gsub!(/ /,'-')
+    url = product_name
+  end
+
   def run
+
+    @products_before_import.each { |p| p.destroy }
+
     Dir.glob(File.join(@dir , '*.csv')).each do |file|
       puts "Importing file: " + file
       ActiveRecord::Base.transaction do
@@ -511,7 +535,224 @@ class ImportProducts
   
   #If you want to write your own task or wrapper, this is the main entry point
   def load_file full_name
-    file = CSV.open( full_name ,  { :col_sep => ","} ) 
+    rows = CSV.read( full_name ,  {:col_sep=>"\t",:quote_char=>"\t"} )
+
+    if IMPORT_PRODUCT_SETTINGS[:first_row_is_headings]
+              col = get_column_mappings(rows[0])
+            else
+              col = IMPORT_PRODUCT_SETTINGS[:column_mappings]
+    end
+
+    log("Importing products for #{full_name} began at #{Time.now}")
+    rows[IMPORT_PRODUCT_SETTINGS[:rows_to_skip]..-1].each do |row|
+
+      product_information = {}
+
+      #Automatically map 'mapped' fields to a collection of product information.
+      #NOTE: This code will deal better with the auto-mapping function - i.e. if there
+      #are named columns in the spreadsheet that correspond to product
+      # and variant field names.
+
+      col.each do |key, value|
+        #Trim whitespace off the beginning and end of row fields
+        row[value].try :strip!
+        product_information[key] = row[value]
+      end
+
+      #Manually set available_on if it is not already set
+      product_information[:available_on] = Date.today - 1.day if product_information[:available_on].nil?
+      product_information[:master_price] = product_information[:cost_price].to_f*product_information[:margin].to_f
+      product_information[:permalink] = create_permalink_url(product_information[:name].clone, product_information[:sku])
+
+      #log("#{pp product_information}")
+
+
+      variant_comparator_field = IMPORT_PRODUCT_SETTINGS[:variant_comparator_field].try :to_sym
+      variant_comparator_column = col[variant_comparator_field]
+
+      if IMPORT_PRODUCT_SETTINGS[:create_variants] and variant_comparator_column and
+        p = Spree::Product.where(variant_comparator_field => row[variant_comparator_column]).first
+
+        log("found product with this field #{variant_comparator_field}=#{row[variant_comparator_column]}")
+        p.update_attribute(:deleted_at, nil) if p.deleted_at #Un-delete product if it is there
+        p.variants.each { |variant| variant.update_attribute(:deleted_at, nil) }
+        create_variant_for(p, :with => product_information)
+      else
+        next unless create_product_using(product_information)
+      end
+    end
+
+    #if IMPORT_PRODUCT_SETTINGS[:destroy_original_products]
+    #  @products_before_import.each { |p| p.destroy }
+    #end
+
+  end
+
+  def create_product_using(params_hash)
+    product = Spree::Product.new
+
+    #The product is inclined to complain if we just dump all params
+    # into the product (including images and taxonomies).
+    # What this does is only assigns values to products if the product accepts that field.
+    params_hash[:price] ||= params_hash[:master_price]
+    params_hash.each do |field, value|
+      if product.respond_to?("#{field}=")
+        product.send("#{field}=", value)
+      elsif property = Spree::Property.where(["name = ?", field]).first
+        product.product_properties.build({:value => value, :property => property}, :without_protection => true)
+      end
+    end
+
+    #after_product_built(product, params_hash)
+
+    #We can't continue without a valid product here
+    unless product.valid?
+      log(msg = "A product could not be imported - here is the information we have:\n" +
+          "#{pp params_hash}, #{product.errors.full_messages.join(', ')}")
+      raise ProductError, msg
+    end
+
+    #Just log which product we're processing
+    #log(product.name)
+
+    #This should be caught by code in the main import code that checks whether to create
+    #variants or not. Since that check can be turned off, however, we should double check.
+    if @names_of_products_before_import.include? product.name
+      log("#{product.name} is already in the system.\n")
+    else
+      #Save the object before creating asssociated objects
+      product.save
+
+
+      #Associate our new product with any taxonomies that we need to worry about
+      IMPORT_PRODUCT_SETTINGS[:taxonomy_fields].each do |field|
+        associate_product_with_taxon(product, field.to_s, params_hash[field.to_sym])
+      end
+
+      #Finally, attach any images that have been specified
+      IMPORT_PRODUCT_SETTINGS[:image_fields].each do |field|
+        find_and_attach_image_to(product, params_hash[field.to_sym])
+      end
+
+      if IMPORT_PRODUCT_SETTINGS[:multi_domain_importing] && product.respond_to?(:stores)
+        begin
+          store = Store.find(
+            :first,
+            :conditions => ["id = ? OR code = ?",
+              params_hash[IMPORT_PRODUCT_SETTINGS[:store_field]],
+              params_hash[IMPORT_PRODUCT_SETTINGS[:store_field]]
+            ]
+          )
+
+          product.stores << store
+        rescue
+          log("#{product.name} could not be associated with a store. Ensure that Spree's multi_domain extension is installed and that fields are mapped to the CSV correctly.")
+        end
+      end
+
+      #Log a success message
+      log("#{product.name} successfully imported.\n")
+    end
+    return true
+  end
+
+
+
+  ### IMAGE HELPERS ###
+
+  # find_and_attach_image_to
+  # This method attaches images to products. The images may come
+  # from a local source (i.e. on disk), or they may be online (HTTP/HTTPS).
+  def find_and_attach_image_to(product_or_variant, filename)
+    return if filename.blank?
+
+    #The image can be fetched from an HTTP or local source - either method returns a Tempfile
+    file = filename =~ /\Ahttp[s]*:\/\// ? fetch_remote_image(filename) : fetch_local_image(filename)
+    #An image has an attachment (the image file) and some object which 'views' it
+
+=begin
+    type = file_name.split(".").last
+            i = Image.new(:attachment => fixture_file_upload(file_name, "image/#{type}" ))
+            i.viewable_type = "Product"
+            # link main image to the product
+            i.viewable = prod
+            prod.images << i
+
+            if prod.class == Variant
+              i = Image.new(:attachment => fixture_file_upload(file_name, "image/#{type}" ))
+              i.viewable_type = "Product"
+              prod.product.images << i
+            end
+=end
+
+    product_image = Spree::Image.new({:attachment => file,
+                              :viewable_type => product_or_variant,
+                              :position => product_or_variant.images.length
+                              })
+
+    product_or_variant.images << product_image if product_image.save
+  end
+
+  def fetch_local_image(filename)
+    filename = IMPORT_PRODUCT_SETTINGS[:product_image_path] + filename
+    unless File.exists?(filename) && File.readable?(filename)
+      log("Image #{filename} was not found on the server, so this image was not imported.", :warn)
+      return nil
+    else
+      return File.open(filename, 'rb')
+    end
+  end
+
+
+    #This method can be used when the filename matches the format of a URL.
+    # It uses open-uri to fetch the file, returning a Tempfile object if it
+    # is successful.
+    # If it fails, it in the first instance logs the HTTP error (404, 500 etc)
+    # If it fails altogether, it logs it and exits the method.
+  def fetch_remote_image(filename)
+    begin
+      open(filename)
+    rescue OpenURI::HTTPError => error
+      log("Image #{filename} retrival returned #{error.message}, so this image was not imported")
+    rescue
+      log("Image #{filename} could not be downloaded, so was not imported.")
+    end
+  end
+
+  ### TAXON HELPERS ###
+
+  # associate_product_with_taxon
+  # This method accepts three formats of taxon hierarchy strings which will
+  # associate the given products with taxons:
+  # 1. A string on it's own will will just find or create the taxon and
+  # add the product to it. e.g. taxonomy = "Category", taxon_hierarchy = "Tools" will
+  # add the product to the 'Tools' category.
+  # 2. A item > item > item structured string will read this like a tree - allowing
+  # a particular taxon to be picked out
+  # 3. An item > item & item > item will work as above, but will associate multiple
+  # taxons with that product. This form should also work with format 1.
+  def associate_product_with_taxon(product, taxonomy, taxon_hierarchy)
+    return if product.nil? || taxonomy.nil? || taxon_hierarchy.nil?
+    #Using find_or_create_by_name is more elegant, but our magical params code automatically downcases
+    # the taxonomy name, so unless we are using MySQL, this isn't going to work.
+    taxonomy_name = taxonomy
+    taxonomy = Spree::Taxonomy.find(:first, :conditions => ["lower(name) = ?", taxonomy])
+    taxonomy = Spree::Taxonomy.create(:name => taxonomy_name.capitalize) if taxonomy.nil? && IMPORT_PRODUCT_SETTINGS[:create_missing_taxonomies]
+
+    taxon_hierarchy.split(/\s*\&\s*/).each do |hierarchy|
+      hierarchy = hierarchy.split(/\s*>\s*/)
+      last_taxon = taxonomy.root
+      hierarchy.each do |taxon|
+        last_taxon = last_taxon.children.find_or_create_by_name_and_taxonomy_id(taxon, taxonomy.id)
+      end
+
+      #Spree only needs to know the most detailed taxonomy item
+      product.taxons << last_taxon unless product.taxons.include?(last_taxon)
+    end
+  end
+  ### END TAXON HELPERS ###
+
+=begin
     @header = file.shift
     @data = file.readlines
     #puts @header
@@ -540,10 +781,11 @@ class ImportProducts
       #Check for variants
       
 	    index = slurp_variants(prod , index + 1) #read variants if there are, returning the last read line
+=end
 	 
-    end
 
-  end
+
+
   
   #make sure there is an admin user
   def check_admin_user(password="spree123", email="spree@example.com")
@@ -555,5 +797,13 @@ class ImportProducts
       admin.roles << Role.find_or_create_by_name("admin")
       admin.save!
   end
-  
+
+
+  def log(message, severity = :info)
+    @rake_log ||= ActiveSupport::BufferedLogger.new(IMPORT_PRODUCT_SETTINGS[:log_to])
+    message = "[#{Time.now.to_s(:db)}] [#{severity.to_s.capitalize}] #{message}\n"
+    @rake_log.send severity, message
+    puts message
+  end
+
 end
