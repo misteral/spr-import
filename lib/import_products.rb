@@ -2,9 +2,9 @@
 
 require 'csv'
 require 'active_support'
-require 'action_controller'
-include ActionDispatch::TestProcess
-require 'yaml'
+#require 'action_controller'
+#include ActionDispatch::TestProcess
+#require 'yaml'
 require 'russian'
 
 # class AuditLogger < Logger
@@ -23,65 +23,12 @@ class ImportProducts
 #      # if there are more than one, take lexically last
 #
     @dir = IMPORT_PRODUCT_SETTINGS[:file_path]
-    @product_ids = []
-    @products_before_import = Spree::Product.all
-    @names_of_products_before_import = []
-    @products_before_import.each do |product|
-      @names_of_products_before_import << product.name
-    end
-
-
-#      #puts "Loading from #{@dir}"
-#
-#      # logfile = File.open(File.join(Rails.root.to_s, "log","product-import-#{Time.now.to_s(:db)}.log"), 'a')
-#      # @audit_log = AuditLogger.new(logfile)
-#
-#      # @audit_log.info "Loading from #{@dir}"
-#
-#      # one root taxonomy supported only. Must be set before (eg rake db:load_file)
-#      #@taxonomy = Spree::Taxonomy.find(:first)
-#      #throw "No Taxonomy found, create by sample data (rake db:data:load) or override set_taxon method" unless @taxonomy
-#
-#      #root = @taxonomy.root  # the root of a taxonomy is a taxon , usually with the same name (?)
-#      #if root == nil
-#      #  @taxonomy.root = Taxon.new( :name => @taxonomy.name , :taxonomy_id => @taxonomy.id )
-#      #  @taxonomy.save!
-#      #end
-#
-#      # assuming you have data from another software which generates csv (or tab delimited) data _with headers_
-#      # We want to map those "external" headers to the spree product names: That is the mapping below
-#      # mapping to nil, means that column is digarded (thus possibly saving you to remove colums from the import file)
-#      #@mapping = YAML.load_file(  File.join( @dir , "mapping.yml") )
-#      #or edit something like this
-#
-#      #@mapping = {
-#        'prototype' 		    => :prototype,
-#        'parent_sku'		    => :parent_sku,
-#        'sku' 				      => :sku,
-#        'permalink'			    => :permalink,
-#        'name' 				      => :name,
-#        'description' 		  => :description,
-#        'price' 			      => :price,
-#        'option' 			      => :option,
-#        'Width' 			      => :width,
-#        'Length'			      => :depth,
-#        'Weight' 			      => :weight,
-#        'quantity' 			    => :quantity,
-#        'brand' 			      => :brand,
-#        'category' 			    => :category1,
-##       'cat2' 			      => :category2,
-#        'shipping_category' => :shipping_category,
-#        'tax_category' 		  => :tax_category,
-#        'unit_price' 		    => :unit_price,
-#        'delete'        	  => :delete,
-#        'image' 			      => :image,
-#        'image2' 			      => :image2,
-#        'image3' 			      => :image3,
-#        'page_title'		    => :meta_title,
-#        'meta_description'  => :meta_description,
-#        'meta_keywords'		  => :meta_keywords,
-#        'VE1' 				      => 	nil
-#      }
+    #@product_ids = []
+    #@products_before_import = Spree::Product.all
+    #@names_of_products_before_import = []
+    #@products_before_import.each do |product|
+    #  @names_of_products_before_import << product.name
+    #end
   end
   
 
@@ -96,7 +43,7 @@ class ImportProducts
 
   def run
 
-    @products_before_import.each { |p| p.destroy }
+    #@products_before_import.each { |p| p.destroy }
 
     Dir.glob(File.join(@dir , '*.csv')).each do |file|
       puts "Importing file: " + file
@@ -119,6 +66,7 @@ class ImportProducts
     log("Importing products for #{full_name} began at #{Time.now}")
     #rows[IMPORT_PRODUCT_SETTINGS[:rows_to_skip]..-1].each do |row|
     rows[0..10].each do |row|
+      log("Elements for import in file:" + rows.length)
       product_information = {}
 
       #Automatically map 'mapped' fields to a collection of product information.
@@ -138,6 +86,23 @@ class ImportProducts
       product_information[:permalink] = create_permalink_url(product_information[:name].clone, product_information[:sku])
 
       #log("#{pp product_information}")
+
+      # распределение по моим таксонам
+      #my_real_taxonomies = Spree::Taxon.select(:name).where("parent_id IS NOT NULL")
+
+      for_suv_i_podarki =
+      "Куклы коллекционные от 30 см",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+      skip = false
+
+
 
 
       variant_comparator_field = IMPORT_PRODUCT_SETTINGS[:variant_comparator_field].try :to_sym
@@ -244,21 +209,6 @@ class ImportProducts
     file = filename =~ /\Ahttp[s]*:\/\// ? fetch_remote_image(filename) : fetch_local_image(filename)
     #An image has an attachment (the image file) and some object which 'views' it
 
-=begin
-    type = file_name.split(".").last
-            i = Image.new(:attachment => fixture_file_upload(file_name, "image/#{type}" ))
-            i.viewable_type = "Product"
-            # link main image to the product
-            i.viewable = prod
-            prod.images << i
-
-            if prod.class == Variant
-              i = Image.new(:attachment => fixture_file_upload(file_name, "image/#{type}" ))
-              i.viewable_type = "Product"
-              prod.product.images << i
-            end
-=end
-
     product_image = Spree::Image.new({:attachment => file,
                               :viewable_type => "Product",
                               :viewable_id => product_or_variant[:id],
@@ -327,41 +277,6 @@ class ImportProducts
   end
   ### END TAXON HELPERS ###
 
-=begin
-    @header = file.shift
-    @data = file.readlines
-    #puts @header
-    @header.each do |col|
-      puts "col=#{col}= mapped to =#{@mapping[col]}="
-    end
-    index = 0
-    while index < @data.length
-      row = @data[index]
-      #puts "row is " + row.join("--")
-      @mapping.each  do |key,val|
-        #puts "Row:#{val} at #{@mapping.index(val)} is --#{@header.index(@mapping.index(val))}--value---"
-        #puts "--#{at_in(val,row)}--" if @header.index(@mapping.index(val))
-      end
-      prod = get_product(row)
-      set_attributes_and_image( prod , row )
-      set_destroy(prod,row)
-      
-      #puts "saving -" + prod.description + "-  at " + at_in(:price,row) #if at_in(:price,row) == "0"
-      prod.save!
-      throw "No master for #{prod.name}" if prod.master == nil 
-      #@audit_log.error "No master for #{prod.name}" if prod.master == nil 
-      
-      puts "Saved: " + prod.sku + " - " + prod.name # + " -  at " + at_in(:price,row) #if at_in(:price,row) == "0"
-      #@audit_log.info "Saved product: #{prod.sku}"
-      #Check for variants
-      
-	    index = slurp_variants(prod , index + 1) #read variants if there are, returning the last read line
-=end
-	 
-
-
-
-  
   #make sure there is an admin user
   def check_admin_user(password="spree123", email="spree@example.com")
       admin = User.find_by_login(email) ||  User.create(  :password => password,
