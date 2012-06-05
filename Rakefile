@@ -2,7 +2,7 @@ require 'rake'
 require 'rake/testtask'
 require 'rake/packagetask'
 require 'rubygems/package_task'
-require 'rspec/core/rake_task'
+#require 'rspec/core/rake_task'
 require 'spree/core/testing_support/common_rake'
 
 RSpec::Core::RakeTask.new
@@ -27,3 +27,4 @@ task :test_app do
   ENV['LIB_NAME'] = 'spree_al_import'
   Rake::Task['common:test_app'].invoke
 end
+
