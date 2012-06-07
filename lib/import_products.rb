@@ -43,7 +43,7 @@ class ImportProducts
 
   def run
 
-    #@products_before_import.each { |p| p.destroy }
+    @products_before_import.each { |p| p.destroy }
 
     Dir.glob(File.join(@dir , '*.csv')).each do |file|
       puts "Importing file: " + file
