@@ -24,26 +24,36 @@ class ImportProducts
 #
     @dir = IMPORT_PRODUCT_SETTINGS[:file_path]
     #@product_ids = []
-    #@products_before_import = Spree::Product.all
-    #@names_of_products_before_import = []
-    #@products_before_import.each do |product|
-    #  @names_of_products_before_import << product.name
-    #end
+    @products_before_import = Spree::Product.all
+    @names_of_products_before_import = []
+    @products_before_import.each do |product|
+      @names_of_products_before_import << product.name
+    end
   end
   
 
   def create_permalink_url (product_name, product_sku)
-    product_name = Russian.translit(product_name).downcase+"-"+product_sku
-    #del_arr  = [",",'"',"~","!","@","%","^","(",")","<",">",":",";","{","}","[","]","&","`","„","‹","’","‘","“","”","•","›","«","´","»","°"]
-    #del_arr.each {|n| product_name.delete! n }
-    product_name.gsub!(/\s+/, '-').gsub!(/[^a-zA-Z0-9_]+/, '-')
-    #product_name.gsub!(/ /,'-')
-    url = product_name
+    begin
+      product_name_not_tr = product_name.clone
+      product_name_tr = Russian.translit(product_name).downcase+"-"+product_sku
+      #del_arr  = [",",'"',"~","!","@","%","^","(",")","<",">",":",";","{","}","[","]","&","`","„","‹","’","‘","“","”","•","›","«","´","»","°"]
+      #del_arr.each {|n| product_name.delete! n }
+      if product_name_tr.nil?
+        url = product_name_not_tr.gsub(/\s+/, '-').gsub(/[^a-zA-Z0-9_]+/, '-')
+      else
+        url = product_name_tr.gsub(/\s+/, '-').gsub(/[^a-zA-Z0-9_]+/, '-')
+      end
+      return url
+      #product_name.gsub!(/ /,'-')
+      #url = product_name
+    rescue Exception => e
+      puts "Error #{e.message}"
+    end
   end
 
   def run
 
-    @products_before_import.each { |p| p.destroy }
+    @products_before_import.each { |p| p.destroy } if @products_before_import
 
     Dir.glob(File.join(@dir , '*.csv')).each do |file|
       puts "Importing file: " + file
@@ -55,6 +65,7 @@ class ImportProducts
   
   #If you want to write your own task or wrapper, this is the main entry point
   def load_file full_name
+    cr_count = 0
     rows = CSV.read( full_name ,  {:col_sep=>"\t",:quote_char=>"\t"} )
 
     if IMPORT_PRODUCT_SETTINGS[:first_row_is_headings]
@@ -64,9 +75,10 @@ class ImportProducts
     end
 
     log("Importing products for #{full_name} began at #{Time.now}")
-    #rows[IMPORT_PRODUCT_SETTINGS[:rows_to_skip]..-1].each do |row|
-    rows[0..10].each do |row|
-      log("Elements for import in file:#{rows.size}")
+    log("Elements for import in file:#{rows.size}")
+    rows[IMPORT_PRODUCT_SETTINGS[:rows_to_skip]..-1].each do |row|
+    #rows[0..10].each do |row|
+
       product_information = {}
 
       #Automatically map 'mapped' fields to a collection of product information.
@@ -90,14 +102,15 @@ class ImportProducts
       # распределение по моим таксонам
       #my_real_taxonomies = Spree::Taxon.select(:name).where("parent_id IS NOT NULL")
 
-
+      taxons = Spree::Taxon.all
       if product_information[:category]
-
+         taxons.each do |_taxon|
+           if product_information[:category].include? _taxon[:name]
+             product_information[:tax] = _taxon
+             product_information[:for_import] = true
+           end
+         end
       end
-
-
-      skip = false
-
 
 
 
@@ -112,14 +125,20 @@ class ImportProducts
         p.variants.each { |variant| variant.update_attribute(:deleted_at, nil) }
         create_variant_for(p, :with => product_information)
       else
-        next unless create_product_using(product_information)
+        if product_information[:for_import] == true
+          create_product_using(product_information)
+          cr_count = cr_count+1
+        else
+          log("skip product becose #{product_information[:category]} not in our taxon ")
+        end
+
       end
     end
 
     #if IMPORT_PRODUCT_SETTINGS[:destroy_original_products]
     #  @products_before_import.each { |p| p.destroy }
     #end
-    log("Importing products for #{full_name} completed at #{DateTime.now}")
+    log("Importing products for #{full_name} completed at #{DateTime.now} imported #{cr_count} elements")
   end
 
   def create_product_using(params_hash)
@@ -153,15 +172,17 @@ class ImportProducts
     #variants or not. Since that check can be turned off, however, we should double check.
     if @names_of_products_before_import.include? product.name
       log("#{product.name} is already in the system.\n")
+      #product.
     else
       #Save the object before creating asssociated objects
       product.save
 
 
       #Associate our new product with any taxonomies that we need to worry about
-      IMPORT_PRODUCT_SETTINGS[:taxonomy_fields].each do |field|
-        associate_product_with_taxon(product, field.to_s, params_hash[field.to_sym])
-      end
+      product.taxons << params_hash[:tax] unless product.taxons.include?(params_hash[:tax])
+      #IMPORT_PRODUCT_SETTINGS[:taxonomy_fields].each do |field|
+      #  associate_product_with_taxon(product, field.to_s, params_hash[field.to_sym])
+      #end
 
       #Finally, attach any images that have been specified
       IMPORT_PRODUCT_SETTINGS[:image_fields].each do |field|
