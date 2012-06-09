@@ -21,7 +21,7 @@ class ImportProducts
 #
 #      #Images are below SPREE/vendor/import/productsXXXX/
 #      # if there are more than one, take lexically last
-#
+#    abort
     @dir = IMPORT_PRODUCT_SETTINGS[:file_path]
     #@product_ids = []
     @products_before_import = Spree::Product.all
@@ -34,7 +34,7 @@ class ImportProducts
 
   def create_permalink_url (product_name, product_sku)
     begin
-      product_name_not_tr = product_name.clone
+      product_name_not_tr = product_name.clone.downcase+"-"+product_sku
       product_name_tr = Russian.translit(product_name).downcase+"-"+product_sku
       #del_arr  = [",",'"',"~","!","@","%","^","(",")","<",">",":",";","{","}","[","]","&","`","„","‹","’","‘","“","”","•","›","«","´","»","°"]
       #del_arr.each {|n| product_name.delete! n }

@@ -1,7 +1,7 @@
-namespace :products do
+namespace :spree do
 
-  desc "Load a txt/csv file."
-  task :import  => :environment do
+  desc "Load a my csv files."
+  task :import_csv  => :environment do
     require 'my_import_products'
     MyImportProducts.new.run
   end
