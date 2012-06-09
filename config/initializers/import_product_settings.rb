@@ -1,3 +1,6 @@
+# encoding: UTF-8
+
+
 # This file is the thing you have to config to match your application
 
 IMPORT_PRODUCT_SETTINGS = {

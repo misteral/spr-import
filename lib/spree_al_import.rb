@@ -1,3 +1,5 @@
+# encoding: UTF-8
+
 require 'spree_core'
 require 'import_products'
 
@@ -15,3 +17,4 @@ module SpreeImportify
     config.to_prepare &method(:activate).to_proc
   end
 end
+
