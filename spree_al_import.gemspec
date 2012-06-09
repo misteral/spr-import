@@ -3,8 +3,8 @@ Gem::Specification.new do |s|
   s.platform    = Gem::Platform::RUBY
   s.name        = 'spree_al_import'
   s.version     = '1.1.2'
-  s.summary     = 'Мой импорт товаров'
-  s.description = 'Мой импорт товаров'
+  s.summary     = 'My import in spree'
+  s.description = 'My import in spree'
   s.required_ruby_version = '>= 1.8.7'
 
   s.author    = '--al--'
